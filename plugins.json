@@ -1,5 +1,27 @@
 [
   {
+    "iconUrl": "https://i.ibb.co/q3YkdNRv/asm0d3usx.png",
+    "apiVersion": 1,
+    "repositoryUrl": "https://github.com/joeretz27/TestRepoCloud",
+    "fileSize": 18531,
+    "status": 1,
+    "language": "id",
+    "authors": [
+      "Asm0d3usX"
+    ],
+    "tvTypes": [
+      "Movie",
+      "TvSeries",
+      "AsianDrama",
+      "Anime"
+    ],
+    "version": 1,
+    "internalName": "Rebahin",
+    "description": "📺 Streaming Movie dan TV Series",
+    "url": "https://raw.githubusercontent.com/joeretz27/TestRepoCloud/builds/Rebahin.cs3",
+    "name": "Rebahin"
+  },
+  {
     "iconUrl": "https://i.ibb.co.com/SwTXWck9/dutamovie.png",
     "apiVersion": 1,
     "repositoryUrl": "https://github.com/Asm0d3usX/CloudX",
