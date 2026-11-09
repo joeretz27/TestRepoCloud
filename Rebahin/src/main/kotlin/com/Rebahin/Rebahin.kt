@@ -60,7 +60,7 @@ class Rebahin : MainAPI() {
         val urlsToTry = listOf(mainUrlJson, fallbackUrlJson)
         for (url in urlsToTry) {
             try {
-                val response = app.get(url, headers = mapOf("User-Agent" to USER_AGENT, "Accept" to "application/json"), timeout = 30L).text
+                val response = app.get(url, headers = mapOf("User-Agent" to USER_AGENT, "Accept" to "application/json"), timeout = 60L).text
                 val json = JSONObject(response)
                 val array = json.optJSONArray("rebahin")
                 val newUrl = array?.optString(0)?.removeSuffix("/")
@@ -77,7 +77,7 @@ class Rebahin : MainAPI() {
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         loadMainUrlIfNeeded()
-        val document = app.get("$mainUrl/${request.data.format(page)}", headers = mapOf("User-Agent" to USER_AGENT, "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"), timeout = 30L).document
+        val document = app.get("$mainUrl/${request.data.format(page)}", headers = mapOf("User-Agent" to USER_AGENT, "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"), timeout = 60L).document
         val items = document.select("div.ml-item").mapNotNull { it.toSearchResult() }
         return newHomePageResponse(request.name, items)
     }
@@ -119,13 +119,13 @@ class Rebahin : MainAPI() {
 
     override suspend fun search(query: String): List<SearchResponse> {
         loadMainUrlIfNeeded()
-        val document = app.get("$mainUrl/?s=$query", headers = mapOf("User-Agent" to USER_AGENT, "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"), timeout = 30L).document
+        val document = app.get("$mainUrl/?s=$query", headers = mapOf("User-Agent" to USER_AGENT, "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"), timeout = 60L).document
         return document.select("div.ml-item").mapNotNull { it.toSearchResult() }
     }
 
     override suspend fun load(url: String): LoadResponse {
         loadMainUrlIfNeeded()
-        val fetch = app.get(url, headers = mapOf("User-Agent" to USER_AGENT, "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"), timeout = 30L)
+        val fetch = app.get(url, headers = mapOf("User-Agent" to USER_AGENT, "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"), timeout = 60L)
         directUrl = getBaseUrl(fetch.url)
         val document = fetch.document
 
@@ -236,7 +236,7 @@ class Rebahin : MainAPI() {
         }
 
         val playUrl = if (data.endsWith("/play")) data else data.removeSuffix("/") + "/play"
-        val playDoc = try { app.get(playUrl, headers = mapOf("User-Agent" to USER_AGENT, "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"), timeout = 30L).document } catch (_: Exception) { null }
+        val playDoc = try { app.get(playUrl, headers = mapOf("User-Agent" to USER_AGENT, "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"), timeout = 60L).document } catch (_: Exception) { null }
 
         playDoc?.select("#server-list div.server, div.server-wrapper div.server, [data-iframe]")?.amap { server ->
             val b64 = server.attr("data-iframe")
