@@ -5,9 +5,17 @@ import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.LoadResponse.Companion.addActors
 import com.lagradost.cloudstream3.LoadResponse.Companion.addScore
 import com.lagradost.cloudstream3.LoadResponse.Companion.addTrailer
+import com.lagradost.cloudstream3.SubtitleFile
+import com.lagradost.cloudstream3.newSubtitleFile
+import com.lagradost.cloudstream3.USER_AGENT
 import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.ExtractorLinkType
+import com.lagradost.cloudstream3.utils.M3u8Helper.Companion.generateM3u8
 import com.lagradost.cloudstream3.utils.httpsify
+import com.lagradost.cloudstream3.utils.newExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import org.jsoup.nodes.Element
@@ -212,13 +220,15 @@ class Rebahin : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
+        val pageReferer = "$mainUrl/"
+
         if (data.startsWith("[") || data.startsWith("{")) {
             try {
                 val jsonArr = JSONArray(data)
                 for (i in 0 until jsonArr.length()) {
                     val serverUrl = jsonArr.optString(i)
                     if (!serverUrl.isNullOrBlank()) {
-                        loadExtractor(serverUrl, "$mainUrl/", subtitleCallback, callback)
+                        handleServerUrl(serverUrl, pageReferer, subtitleCallback, callback)
                     }
                 }
                 return true
@@ -226,23 +236,213 @@ class Rebahin : MainAPI() {
         }
 
         val playUrl = if (data.endsWith("/play")) data else data.removeSuffix("/") + "/play"
-        val playDoc = app.get(playUrl).document
+        val playDoc = try { app.get(playUrl).document } catch (_: Exception) { null }
 
-        val serverElements = playDoc.select("#server-list div.server, div.server-wrapper div.server, [data-iframe]")
-        serverElements.amap { server ->
+        playDoc?.select("#server-list div.server, div.server-wrapper div.server, [data-iframe]")?.amap { server ->
             val b64 = server.attr("data-iframe")
             val decoded = decodeIframeUrl(b64)
             if (!decoded.isNullOrBlank()) {
-                loadExtractor(decoded, "$mainUrl/", subtitleCallback, callback)
+                handleServerUrl(decoded, pageReferer, subtitleCallback, callback)
             }
         }
 
-        playDoc.select("iframe#iframe-embed, div.content-embed iframe").forEach { iframe ->
+        playDoc?.select("iframe#iframe-embed, div.content-embed iframe")?.forEach { iframe ->
             val src = iframe.attr("src").takeIf { it.isNotBlank() } ?: return@forEach
-            loadExtractor(httpsify(src), "$mainUrl/", subtitleCallback, callback)
+            val url = httpsify(src)
+            if (url.contains("abyssplayer", true)) return@forEach
+            if (url.contains("/embed/", true)) {
+                handleJuicyEmbed(url, pageReferer, subtitleCallback, callback)
+            } else {
+                loadExtractor(url, pageReferer, subtitleCallback, callback)
+            }
         }
 
         return true
+    }
+
+    private fun isJuicyEmbed(url: String): Boolean =
+        url.contains("/embed/", true) && !url.contains("abyssplayer", true)
+
+    private suspend fun handleServerUrl(
+        url: String,
+        pageReferer: String,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        when {
+            url.contains("abyssplayer", true) -> { /* skip */ }
+            isJuicyEmbed(url) -> handleJuicyEmbed(url, pageReferer, subtitleCallback, callback)
+            else -> loadExtractor(url, pageReferer, subtitleCallback, callback)
+        }
+    }
+
+    private suspend fun handleJuicyEmbed(
+        embedUrl: String,
+        pageReferer: String,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        val embedHost = getBaseUrl(embedUrl)
+        val ua = USER_AGENT
+        val fetchHeaders = mapOf(
+            "User-Agent" to ua,
+            "Referer" to pageReferer,
+            "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "Accept-Language" to "en-US",
+        )
+
+        val html = try {
+            app.get(embedUrl, headers = fetchHeaders, referer = pageReferer).text
+        } catch (_: Exception) {
+            null
+        } ?: return
+
+        val juicyData = extractJuicyData(html) ?: return
+        val data = juicyData.optJSONObject("data") ?: return
+        val token = data.optString("token")
+        val pingPathRaw = data.optJSONObject("routes")?.optString("ping")
+
+        val config = decodeJuicyCodes(html) ?: return
+        val sources = config.optJSONObject("sources")
+        val m3u8Url = sources?.optString("file")
+        if (m3u8Url.isNullOrBlank()) return
+
+        // subtitles
+        val tracks = config.optJSONArray("tracks")
+        if (tracks != null) {
+            for (k in 0 until tracks.length()) {
+                val t = tracks.optJSONObject(k) ?: continue
+                val kind = t.optString("kind")
+                if (kind.equals("thumbnails", true)) continue
+                val file = t.optString("file")
+                if (file.isBlank()) continue
+                val label = t.optString("label").ifBlank {
+                    if (kind.equals("captions", true)) "Subtitle" else kind.ifBlank { "Subtitle" }
+                }
+                subtitleCallback(newSubtitleFile(label, file))
+            }
+        }
+
+        // ping best-effort
+        if (!token.isNullOrBlank() && !pingPathRaw.isNullOrBlank()) {
+            try {
+                val pingPath = pingPathRaw.replace("\\/", "/")
+                val pingUrl = embedHost + if (pingPath.startsWith("/")) pingPath else "/$pingPath"
+                val pingBody = JSONObject().apply {
+                    put("_token", token)
+                    put("__type", "dawn")
+                    put("pingID", generatePingId())
+                }.toString()
+                val pingHeaders = mapOf(
+                    "Content-Type" to "application/json",
+                    "Accept" to "*/*",
+                    "Accept-Language" to "en-US",
+                    "Origin" to embedHost,
+                    "Referer" to embedUrl,
+                    "User-Agent" to ua,
+                )
+                val mediaType = "application/json".toMediaType()
+                app.post(
+                    pingUrl,
+                    headers = pingHeaders,
+                    requestBody = pingBody.toRequestBody(mediaType)
+                )
+            } catch (_: Exception) { }
+        }
+
+        val streamHeaders = mapOf(
+            "Referer" to embedUrl,
+            "Origin" to embedHost,
+            "User-Agent" to ua,
+        )
+
+        var emitted = false
+        try {
+            val links = generateM3u8(name, m3u8Url, referer = embedUrl, headers = streamHeaders)
+            if (links.isNotEmpty()) {
+                links.forEach(callback)
+                emitted = true
+            }
+        } catch (_: Exception) { }
+
+        if (!emitted) {
+            try {
+                callback(
+                    newExtractorLink(name, name, m3u8Url, ExtractorLinkType.M3U8) {
+                        this.headers = streamHeaders
+                    }
+                )
+            } catch (_: Exception) { }
+        }
+    }
+
+    private fun extractJuicyData(html: String): JSONObject? {
+        val idx = html.indexOf("juicyData")
+        if (idx < 0) return null
+        val braceStart = html.indexOf('{', idx)
+        if (braceStart < 0) return null
+        var depth = 0
+        var i = braceStart
+        while (i < html.length) {
+            when (html[i]) {
+                '{' -> depth++
+                '}' -> {
+                    depth--
+                    if (depth == 0) {
+                        val json = html.substring(braceStart, i + 1)
+                        return try { JSONObject(json) } catch (_: Exception) { null }
+                    }
+                }
+            }
+            i++
+        }
+        return null
+    }
+
+    private fun decodeJuicyCodes(html: String): JSONObject? {
+        val regex = Regex("_juicycodes\\((.*?)\\)", RegexOption.DOT_MATCHES_ALL)
+        val match = regex.find(html) ?: return null
+        val argStr = match.groupValues[1]
+        val stringRegex = Regex("\"([^\"]*)\"")
+        val arg = stringRegex.findAll(argStr).map { it.groupValues[1] }.joinToString("")
+        if (arg.length < 4) return null
+
+        val saltStr = arg.takeLast(3).map { (it.code - 100).toString() }.joinToString("")
+        val salt = saltStr.toIntOrNull() ?: return null
+        val body = arg.dropLast(3)
+
+        var b64 = body.replace('_', '+').replace('-', '/')
+        while (b64.length % 4 != 0) b64 += "="
+        val decodedBytes = try { Base64.decode(b64, Base64.DEFAULT) } catch (_: Exception) { return null }
+        val decoded = String(decodedBytes, Charsets.UTF_8)
+
+        val symbols = "`%-+*$!_^="
+        val digits = StringBuilder()
+        for (c in decoded) {
+            val idx = symbols.indexOf(c)
+            if (idx < 0) return null
+            digits.append(idx)
+        }
+        val d = digits.toString()
+        val out = StringBuilder()
+        var i = 0
+        while (i + 4 <= d.length) {
+            val chunk = d.substring(i, i + 4)
+            val code = chunk.toIntOrNull()?.mod(1000)?.minus(salt) ?: return null
+            out.append(code.toChar())
+            i += 4
+        }
+        val js = out.toString()
+        val start = js.indexOf('{')
+        val end = js.lastIndexOf('}')
+        if (start < 0 || end < start) return null
+        val jsonStr = js.substring(start, end + 1)
+        return try { JSONObject(jsonStr) } catch (_: Exception) { null }
+    }
+
+    private fun generatePingId(): String {
+        val chars = "0123456789abcdef"
+        return (1..32).map { chars.random() }.joinToString("")
     }
 
     private fun decodeIframeUrl(b64: String?): String? {
