@@ -5,6 +5,7 @@ import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.LoadResponse.Companion.addActors
 import com.lagradost.cloudstream3.LoadResponse.Companion.addScore
 import com.lagradost.cloudstream3.LoadResponse.Companion.addTrailer
+import com.lagradost.api.Log
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.newSubtitleFile
 import com.lagradost.cloudstream3.USER_AGENT
@@ -229,6 +230,7 @@ class Rebahin : MainAPI() {
     ): Boolean {
         val pageReferer = "$mainUrl/"
         var anyEmitted = false
+        Log.d("Rebahin", "loadLinks data=${data.take(120)}")
         val wrappedCallback: (ExtractorLink) -> Unit = { link ->
             anyEmitted = true
             callback(link)
@@ -237,6 +239,7 @@ class Rebahin : MainAPI() {
         if (data.startsWith("[") || data.startsWith("{")) {
             try {
                 val jsonArr = JSONArray(data)
+                Log.d("Rebahin", "json array len=${jsonArr.length()}")
                 for (i in 0 until jsonArr.length()) {
                     val serverUrl = jsonArr.optString(i)
                     if (!serverUrl.isNullOrBlank()) {
@@ -249,6 +252,7 @@ class Rebahin : MainAPI() {
 
         val playUrl = if (data.endsWith("/play")) data else data.removeSuffix("/") + "/play"
         val playDoc = try { app.get(playUrl, headers = mapOf("User-Agent" to USER_AGENT, "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"), referer = data, timeout = 60L).document } catch (_: Exception) { null }
+        Log.d("Rebahin", "playDoc=${playDoc != null} playUrl=$playUrl")
 
         playDoc?.select("#server-list div.server, div.server-wrapper div.server, [data-iframe]")?.amap { server ->
             val b64 = server.attr("data-iframe")
@@ -306,6 +310,7 @@ class Rebahin : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ) {
         var emitted = false
+        Log.d("Rebahin", "handleJuicyEmbed start $embedUrl")
         try {
         val embedHost = getBaseUrl(embedUrl)
         val ua = USER_AGENT
@@ -376,17 +381,20 @@ class Rebahin : MainAPI() {
         }
         } catch (_: Exception) { }
         if (!emitted) {
+            Log.d("Rebahin", "handleJuicyEmbed fallback loadExtractor $embedUrl")
             try {
                 loadExtractor(embedUrl, pageReferer, subtitleCallback, callback)
                 emitted = true
             } catch (_: Exception) { }
         }
         if (!emitted) {
+            Log.d("Rebahin", "handleJuicyEmbed fallback emit embed $embedUrl")
             try {
                 callback(newExtractorLink(name, name, embedUrl))
                 emitted = true
             } catch (_: Exception) { }
         }
+        Log.d("Rebahin", "handleJuicyEmbed end emitted=$emitted")
     }
 
     private fun extractJuicyData(html: String): JSONObject? {
