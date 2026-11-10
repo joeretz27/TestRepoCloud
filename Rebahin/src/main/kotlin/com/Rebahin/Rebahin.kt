@@ -221,6 +221,11 @@ class Rebahin : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         val pageReferer = "$mainUrl/"
+        var anyEmitted = false
+        val wrappedCallback: (ExtractorLink) -> Unit = { link ->
+            anyEmitted = true
+            callback(link)
+        }
 
         if (data.startsWith("[") || data.startsWith("{")) {
             try {
@@ -228,7 +233,7 @@ class Rebahin : MainAPI() {
                 for (i in 0 until jsonArr.length()) {
                     val serverUrl = jsonArr.optString(i)
                     if (!serverUrl.isNullOrBlank()) {
-                        handleServerUrl(serverUrl, pageReferer, subtitleCallback, callback)
+                        handleServerUrl(serverUrl, pageReferer, subtitleCallback, wrappedCallback)
                     }
                 }
                 return true
@@ -236,13 +241,13 @@ class Rebahin : MainAPI() {
         }
 
         val playUrl = if (data.endsWith("/play")) data else data.removeSuffix("/") + "/play"
-        val playDoc = try { app.get(playUrl, headers = mapOf("User-Agent" to USER_AGENT, "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"), timeout = 60L).document } catch (_: Exception) { null }
+        val playDoc = try { app.get(playUrl, headers = mapOf("User-Agent" to USER_AGENT, "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"), referer = data, timeout = 60L).document } catch (_: Exception) { null }
 
         playDoc?.select("#server-list div.server, div.server-wrapper div.server, [data-iframe]")?.amap { server ->
             val b64 = server.attr("data-iframe")
             val decoded = decodeIframeUrl(b64)
             if (!decoded.isNullOrBlank()) {
-                handleServerUrl(decoded, pageReferer, subtitleCallback, callback)
+                handleServerUrl(decoded, pageReferer, subtitleCallback, wrappedCallback)
             }
         }
 
@@ -251,10 +256,21 @@ class Rebahin : MainAPI() {
             val url = httpsify(src)
             if (url.contains("abyssplayer", true)) return@forEach
             if (url.contains("/embed/", true)) {
-                handleJuicyEmbed(url, pageReferer, subtitleCallback, callback)
+                handleJuicyEmbed(url, pageReferer, subtitleCallback, wrappedCallback)
             } else {
-                loadExtractor(url, pageReferer, subtitleCallback, callback)
+                loadExtractor(url, pageReferer, subtitleCallback, wrappedCallback)
             }
+        }
+
+        if (!anyEmitted) {
+            try {
+                loadExtractor(data, pageReferer, subtitleCallback, wrappedCallback)
+            } catch (_: Exception) { }
+        }
+        if (!anyEmitted) {
+            try {
+                wrappedCallback(newExtractorLink(name, name, data))
+            } catch (_: Exception) { }
         }
 
         return true
