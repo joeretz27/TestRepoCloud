@@ -1,4 +1,4 @@
-version = 3
+version = 4
 
 cloudstream {
     description = "Rebahin - Streaming Movie dan TV Series Indonesia"
