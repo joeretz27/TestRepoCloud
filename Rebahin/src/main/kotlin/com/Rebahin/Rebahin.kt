@@ -14,8 +14,7 @@ import com.lagradost.cloudstream3.utils.M3u8Helper.Companion.generateM3u8
 import com.lagradost.cloudstream3.utils.httpsify
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.RequestBody.Companion.toRequestBody
+
 import org.json.JSONArray
 import org.json.JSONObject
 import org.jsoup.nodes.Element
@@ -345,36 +344,10 @@ class Rebahin : MainAPI() {
                 val label = t.optString("label").ifBlank {
                     if (kind.equals("captions", true)) "Subtitle" else kind.ifBlank { "Subtitle" }
                 }
-                subtitleCallback(newSubtitleFile(label, file))
+                subtitleCallback(SubtitleFile(label, file))
             }
         }
 
-        // ping best-effort
-        if (!token.isNullOrBlank() && !pingPathRaw.isNullOrBlank()) {
-            try {
-                val pingPath = pingPathRaw.replace("\\/", "/")
-                val pingUrl = embedHost + if (pingPath.startsWith("/")) pingPath else "/$pingPath"
-                val pingBody = JSONObject().apply {
-                    put("_token", token)
-                    put("__type", "dawn")
-                    put("pingID", generatePingId())
-                }.toString()
-                val pingHeaders = mapOf(
-                    "Content-Type" to "application/json",
-                    "Accept" to "*/*",
-                    "Accept-Language" to "en-US",
-                    "Origin" to embedHost,
-                    "Referer" to embedUrl,
-                    "User-Agent" to ua,
-                )
-                val mediaType = "application/json".toMediaType()
-                app.post(
-                    pingUrl,
-                    headers = pingHeaders,
-                    requestBody = pingBody.toRequestBody(mediaType)
-                )
-            } catch (_: Exception) { }
-        }
 
         val streamHeaders = mapOf(
             "Referer" to embedUrl,
@@ -478,11 +451,6 @@ class Rebahin : MainAPI() {
         if (start < 0 || end < start) return null
         val jsonStr = js.substring(start, end + 1)
         return try { JSONObject(jsonStr) } catch (_: Exception) { null }
-    }
-
-    private fun generatePingId(): String {
-        val chars = "0123456789abcdef"
-        return (1..32).map { chars.random() }.joinToString("")
     }
 
     private fun decodeIframeUrl(b64: String?): String? {
