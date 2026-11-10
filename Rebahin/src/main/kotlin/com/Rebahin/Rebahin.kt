@@ -282,6 +282,8 @@ class Rebahin : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
+        var emitted = false
+        try {
         val embedHost = getBaseUrl(embedUrl)
         val ua = USER_AGENT
         val fetchHeaders = mapOf(
@@ -295,17 +297,17 @@ class Rebahin : MainAPI() {
             app.get(embedUrl, headers = fetchHeaders, referer = pageReferer).text
         } catch (_: Exception) {
             null
-        } ?: return
+        } ?: throw Exception("fetch")
 
-        val juicyData = extractJuicyData(html) ?: return
-        val data = juicyData.optJSONObject("data") ?: return
+        val juicyData = extractJuicyData(html) ?: throw Exception("juicy")
+        val data = juicyData.optJSONObject("data") ?: throw Exception("data")
         val token = data.optString("token")
         val pingPathRaw = data.optJSONObject("routes")?.optString("ping")
 
-        val config = decodeJuicyCodes(html) ?: return
+        val config = decodeJuicyCodes(html) ?: throw Exception("decode")
         val sources = config.optJSONObject("sources")
         val m3u8Url = sources?.optString("file")
-        if (m3u8Url.isNullOrBlank()) return
+        if (m3u8Url.isNullOrBlank()) throw Exception("m3u8")
 
         // subtitles
         val tracks = config.optJSONArray("tracks")
@@ -356,7 +358,7 @@ class Rebahin : MainAPI() {
             "User-Agent" to ua,
         )
 
-        var emitted = false
+        emitted = false
         try {
             val links = generateM3u8(name, m3u8Url, referer = embedUrl, headers = streamHeaders)
             if (links.isNotEmpty()) {
@@ -372,6 +374,20 @@ class Rebahin : MainAPI() {
                         this.headers = streamHeaders
                     }
                 )
+                emitted = true
+            } catch (_: Exception) { }
+        }
+        } catch (_: Exception) { }
+        if (!emitted) {
+            try {
+                loadExtractor(embedUrl, pageReferer, subtitleCallback, callback)
+                emitted = true
+            } catch (_: Exception) { }
+        }
+        if (!emitted) {
+            try {
+                callback(newExtractorLink(name, name, embedUrl))
+                emitted = true
             } catch (_: Exception) { }
         }
     }
