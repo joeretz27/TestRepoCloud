@@ -76,10 +76,14 @@ class Rebahin : MainAPI() {
     }
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        loadMainUrlIfNeeded()
-        val document = app.get("$mainUrl/${request.data.format(page)}", headers = mapOf("User-Agent" to USER_AGENT, "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"), timeout = 60L).document
-        val items = document.select("div.ml-item").mapNotNull { it.toSearchResult() }
-        return newHomePageResponse(request.name, items)
+        return try {
+            loadMainUrlIfNeeded()
+            val document = app.get("$mainUrl/${request.data.format(page)}", headers = mapOf("User-Agent" to USER_AGENT, "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"), timeout = 60L).document
+            val items = document.select("div.ml-item").mapNotNull { it.toSearchResult() }
+            newHomePageResponse(request.name, items)
+        } catch (_: Exception) {
+            newHomePageResponse(request.name, emptyList())
+        }
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
@@ -118,9 +122,13 @@ class Rebahin : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        loadMainUrlIfNeeded()
-        val document = app.get("$mainUrl/?s=$query", headers = mapOf("User-Agent" to USER_AGENT, "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"), timeout = 60L).document
-        return document.select("div.ml-item").mapNotNull { it.toSearchResult() }
+        return try {
+            loadMainUrlIfNeeded()
+            val document = app.get("$mainUrl/?s=$query", headers = mapOf("User-Agent" to USER_AGENT, "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"), timeout = 60L).document
+            document.select("div.ml-item").mapNotNull { it.toSearchResult() }
+        } catch (_: Exception) {
+            emptyList()
+        }
     }
 
     override suspend fun load(url: String): LoadResponse {
