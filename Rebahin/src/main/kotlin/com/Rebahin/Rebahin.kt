@@ -6,6 +6,8 @@ import com.lagradost.cloudstream3.LoadResponse.Companion.addActors
 import com.lagradost.cloudstream3.LoadResponse.Companion.addScore
 import com.lagradost.cloudstream3.LoadResponse.Companion.addTrailer
 import com.lagradost.api.Log
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.newSubtitleFile
 import com.lagradost.cloudstream3.USER_AGENT
@@ -353,6 +355,34 @@ class Rebahin : MainAPI() {
             }
         }
 
+
+        // ping best-effort
+        if (!token.isNullOrBlank() && !pingPathRaw.isNullOrBlank()) {
+            try {
+                val pingPath = pingPathRaw.replace("\\/", "/")
+                val pingUrl = embedHost + if (pingPath.startsWith("/")) pingPath else "/$pingPath"
+                val pingBody = JSONObject().apply {
+                    put("_token", token)
+                    put("__type", "dawn")
+                    put("pingID", (1..32).map { "0123456789abcdef".random() }.joinToString(""))
+                }.toString()
+                val pingHeaders = mapOf(
+                    "Content-Type" to "application/json",
+                    "Accept" to "*/*",
+                    "Accept-Language" to "en-US",
+                    "Origin" to embedHost,
+                    "Referer" to embedUrl,
+                    "User-Agent" to ua,
+                )
+                val mediaType = "application/json".toMediaType()
+                app.post(
+                    pingUrl,
+                    headers = pingHeaders,
+                    requestBody = pingBody.toRequestBody(mediaType),
+                    timeout = 60L
+                )
+            } catch (_: Exception) { }
+        }
 
         val streamHeaders = mapOf(
             "Referer" to embedUrl,
